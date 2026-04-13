@@ -55,8 +55,7 @@ Deno.serve(async (req) => {
       log[table] = rows.length;
     }
 
-    // Disable inventory trigger during migration
-    await dest.rpc("execute_sql", { sql: "" }).catch(() => {}); // ignore
+    // No trigger disable needed - triggers are missing in this project
 
     // Step 1: Independent base tables
     const tables1 = [
