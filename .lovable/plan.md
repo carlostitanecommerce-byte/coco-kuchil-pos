@@ -1,23 +1,45 @@
 
 
-## Plan: Mejorar consistencia de datos en handleConfirm
+## Plan: Anclar fecha_salida_real como punto de referencia único
 
-### Cambios (3 ajustes quirúrgicos en el bloque try/catch existente)
+### Problema
+CoworkingPage calcula el costo al abrir el diálogo de checkout, pero CoworkingSessionSelector recalcula usando `new Date()` si `fecha_salida_real` es null — generando precios diferentes por el tiempo transcurrido entre ambos cálculos.
 
-**1. Antes del paso 1 (línea ~96): Congelar sesión coworking**
-- Si `summary.coworking_session_id` existe, hacer update a `coworking_sessions` con `estado: 'pendiente_pago'` y `fecha_salida_real: nowCDMX()`
-- Esto evita que la sesión siga apareciendo como activa durante el cobro
+### Cambios
 
-**2. Si falla el insert de venta (línea ~113): Revertir sesión**
-- En el bloque donde se lanza error por `ventaErr`, agregar un update para devolver la sesión a `estado: 'activo'` y `fecha_salida_real: null`
+**1. `src/pages/CoworkingPage.tsx` — función `handleCheckOut` (línea ~43)**
+Al inicio, antes de cualquier cálculo, si `session.fecha_salida_real` es null, hacer update a la DB:
+```ts
+if (!session.fecha_salida_real) {
+  const ahora = new Date().toISOString();
+  await supabase
+    .from('coworking_sessions')
+    .update({ fecha_salida_real: ahora })
+    .eq('id', session.id);
+  session = { ...session, fecha_salida_real: ahora };
+}
+```
+Luego usar `session.fecha_salida_real` en lugar de `now` para `salidaReal` (línea 49).
 
-**3. Envolver paso 3 (líneas 148-158) en try/catch propio**
-- Si falla el update a `coworking_sessions` (finalizar), mostrar toast: `"Venta registrada, pero no se pudo cerrar la sesión de coworking. Ciérrala manualmente desde el panel de Coworking."`
-- Continuar normalmente (llamar a onSuccess) para que la venta no se pierda
+**2. `src/components/pos/CoworkingSessionSelector.tsx` — función `handleSelect` (línea ~106)**
+Al inicio, si `session.fecha_salida_real` es null, hacer fetch fresco desde Supabase:
+```ts
+let endRef = session.fecha_salida_real;
+if (!endRef) {
+  const { data: fresh } = await supabase
+    .from('coworking_sessions')
+    .select('fecha_salida_real')
+    .eq('id', session.id)
+    .single();
+  endRef = fresh?.fecha_salida_real ?? new Date().toISOString();
+}
+```
+Usar `endRef` en todos los cálculos subsecuentes (ya lo hace, solo cambia cómo se obtiene).
 
-### Archivo modificado
-- `src/components/pos/ConfirmVentaDialog.tsx` — solo dentro de `handleConfirm`
+### Archivos modificados
+- `src/pages/CoworkingPage.tsx` — 2 cambios en `handleCheckOut`
+- `src/components/pos/CoworkingSessionSelector.tsx` — 1 cambio en `handleSelect`
 
 ### Sin otros cambios
-No se modifica ninguna otra lógica, componente ni tabla.
+No se modifica lógica de precios, tarifas ni upsells.
 
