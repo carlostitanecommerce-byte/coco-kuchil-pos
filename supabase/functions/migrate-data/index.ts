@@ -86,9 +86,9 @@ Deno.serve(async (req) => {
 
     // Step 4: User-related tables
     const profiles = await fetchAll(source, "profiles");
-    // Remove password_encrypted as it's bytea and specific to source
+    // Remove password_visible (source) - dest uses password_encrypted (bytea)
     const cleanProfiles = profiles.map((p: any) => {
-      const { password_encrypted, ...rest } = p;
+      const { password_visible, password_encrypted, ...rest } = p;
       return rest;
     });
     await insertAll("profiles", cleanProfiles);
