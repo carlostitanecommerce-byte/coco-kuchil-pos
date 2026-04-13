@@ -74,6 +74,14 @@ export function ConfirmVentaDialog({ summary, onClose, onSuccess }: Props) {
         }
       }
 
+      // 0.5. Congelar sesión coworking antes de intentar cobrar
+      if (summary.coworking_session_id) {
+        await supabase.from('coworking_sessions').update({
+          estado: 'pendiente_pago' as any,
+          fecha_salida_real: nowCDMX(),
+        }).eq('id', summary.coworking_session_id);
+      }
+
       // 1. Insert venta
       // For tarjeta/transferencia: tip is included in the digital payment amount
       // For mixto: depends on propina_en_digital flag
