@@ -163,15 +163,22 @@ export function ConfirmVentaDialog({ summary, onClose, onSuccess }: Props) {
 
       // 3. Finalize coworking session if linked
       if (summary.coworking_session_id) {
-        const coworkingTotal = summary.items
-          .filter(i => i.tipo_concepto === 'coworking')
-          .reduce((s, i) => s + i.subtotal, 0);
+        try {
+          const coworkingTotal = summary.items
+            .filter(i => i.tipo_concepto === 'coworking')
+            .reduce((s, i) => s + i.subtotal, 0);
 
-        await supabase.from('coworking_sessions').update({
-          estado: 'finalizado' as any,
-          fecha_salida_real: nowCDMX(),
-          monto_acumulado: coworkingTotal,
-        }).eq('id', summary.coworking_session_id);
+          const { error: cwErr } = await supabase.from('coworking_sessions').update({
+            estado: 'finalizado' as any,
+            fecha_salida_real: nowCDMX(),
+            monto_acumulado: coworkingTotal,
+          }).eq('id', summary.coworking_session_id);
+
+          if (cwErr) throw cwErr;
+        } catch (cwError) {
+          console.error('Error finalizando sesión coworking:', cwError);
+          toast.error('Venta registrada, pero no se pudo cerrar la sesión de coworking. Ciérrala manualmente desde el panel de Coworking.');
+        }
       }
 
       // 4. Create KDS order for kitchen (only product items)
