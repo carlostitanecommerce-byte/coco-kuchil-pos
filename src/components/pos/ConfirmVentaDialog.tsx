@@ -74,6 +74,14 @@ export function ConfirmVentaDialog({ summary, onClose, onSuccess }: Props) {
         }
       }
 
+      // 0.5. Congelar sesión coworking antes de intentar cobrar
+      if (summary.coworking_session_id) {
+        await supabase.from('coworking_sessions').update({
+          estado: 'pendiente_pago' as any,
+          fecha_salida_real: nowCDMX(),
+        }).eq('id', summary.coworking_session_id);
+      }
+
       // 1. Insert venta
       // For tarjeta/transferencia: tip is included in the digital payment amount
       // For mixto: depends on propina_en_digital flag
@@ -110,7 +118,16 @@ export function ConfirmVentaDialog({ summary, onClose, onSuccess }: Props) {
         coworking_session_id: summary.coworking_session_id ?? null,
       }).select('id, folio').single();
 
-      if (ventaErr || !venta) throw ventaErr || new Error('No se pudo crear la venta');
+      if (ventaErr || !venta) {
+        // Revertir sesión coworking si fue congelada
+        if (summary.coworking_session_id) {
+          await supabase.from('coworking_sessions').update({
+            estado: 'activo' as any,
+            fecha_salida_real: null,
+          }).eq('id', summary.coworking_session_id);
+        }
+        throw ventaErr || new Error('No se pudo crear la venta');
+      }
 
       // 2. Insert detalle_ventas
       const detalles = summary.items.map(item => ({
@@ -146,15 +163,22 @@ export function ConfirmVentaDialog({ summary, onClose, onSuccess }: Props) {
 
       // 3. Finalize coworking session if linked
       if (summary.coworking_session_id) {
-        const coworkingTotal = summary.items
-          .filter(i => i.tipo_concepto === 'coworking')
-          .reduce((s, i) => s + i.subtotal, 0);
+        try {
+          const coworkingTotal = summary.items
+            .filter(i => i.tipo_concepto === 'coworking')
+            .reduce((s, i) => s + i.subtotal, 0);
 
-        await supabase.from('coworking_sessions').update({
-          estado: 'finalizado' as any,
-          fecha_salida_real: nowCDMX(),
-          monto_acumulado: coworkingTotal,
-        }).eq('id', summary.coworking_session_id);
+          const { error: cwErr } = await supabase.from('coworking_sessions').update({
+            estado: 'finalizado' as any,
+            fecha_salida_real: nowCDMX(),
+            monto_acumulado: coworkingTotal,
+          }).eq('id', summary.coworking_session_id);
+
+          if (cwErr) throw cwErr;
+        } catch (cwError) {
+          console.error('Error finalizando sesión coworking:', cwError);
+          toast.error('Venta registrada, pero no se pudo cerrar la sesión de coworking. Ciérrala manualmente desde el panel de Coworking.');
+        }
       }
 
       // 4. Create KDS order for kitchen (only product items)
