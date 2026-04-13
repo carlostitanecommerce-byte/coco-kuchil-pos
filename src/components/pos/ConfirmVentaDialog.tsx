@@ -118,7 +118,16 @@ export function ConfirmVentaDialog({ summary, onClose, onSuccess }: Props) {
         coworking_session_id: summary.coworking_session_id ?? null,
       }).select('id, folio').single();
 
-      if (ventaErr || !venta) throw ventaErr || new Error('No se pudo crear la venta');
+      if (ventaErr || !venta) {
+        // Revertir sesión coworking si fue congelada
+        if (summary.coworking_session_id) {
+          await supabase.from('coworking_sessions').update({
+            estado: 'activo' as any,
+            fecha_salida_real: null,
+          }).eq('id', summary.coworking_session_id);
+        }
+        throw ventaErr || new Error('No se pudo crear la venta');
+      }
 
       // 2. Insert detalle_ventas
       const detalles = summary.items.map(item => ({
