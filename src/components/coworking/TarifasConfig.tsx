@@ -278,12 +278,15 @@ export function TarifasConfig({ areas }: { areas: Area[] }) {
       </CardContent>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
-          <DialogHeader>
+        <DialogContent className="sm:max-w-2xl lg:max-w-3xl max-h-[90vh] flex flex-col p-0 gap-0">
+          <DialogHeader className="px-6 pt-6 pb-4 border-b border-border/60 shrink-0">
             <DialogTitle>{editingId ? 'Editar Tarifa' : 'Nueva Tarifa'}</DialogTitle>
           </DialogHeader>
 
-          <div className="space-y-5">
+          <div className="flex-1 overflow-y-auto px-6 py-5">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-5">
+              {/* === Columna Izquierda: Configuración base === */}
+              <div className="space-y-5">
             {/* Nombre */}
             <div>
               <Label>Nombre de la Tarifa</Label>
@@ -337,7 +340,7 @@ export function TarifasConfig({ areas }: { areas: Area[] }) {
             {/* Áreas */}
             <div>
               <Label className="mb-2 block">Áreas Aplicables</Label>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
                 {areas.map(area => (
                   <label key={area.id} className="flex items-center gap-2 text-sm cursor-pointer">
                     <Checkbox
@@ -349,7 +352,10 @@ export function TarifasConfig({ areas }: { areas: Area[] }) {
                 ))}
               </div>
             </div>
+              </div>
 
+              {/* === Columna Derecha: Amenities + Upsells === */}
+              <div className="space-y-5">
             {/* Amenities */}
             <div>
               <div className="flex items-center justify-between mb-2">
@@ -433,9 +439,11 @@ export function TarifasConfig({ areas }: { areas: Area[] }) {
                 );
               })}
             </div>
+              </div>
+            </div>
           </div>
 
-          <DialogFooter>
+          <DialogFooter className="px-6 py-4 border-t border-border/60 shrink-0 bg-background">
             <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancelar</Button>
             <Button onClick={handleSave} disabled={saving}>{saving ? 'Guardando...' : 'Guardar'}</Button>
           </DialogFooter>
