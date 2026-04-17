@@ -1,37 +1,50 @@
 
+El error confirma exactamente lo que sospechaba la stack overflow hint: el bundle de producción se construyó **sin** las variables `VITE_SUPABASE_URL` y `VITE_SUPABASE_PUBLISHABLE_KEY`, por eso `createClient(undefined, undefined)` revienta con `supabaseUrl is required`.
 
-## Plan: Corregir inconsistencias en Reportes (3 fixes quirúrgicos)
+## Diagnóstico
 
-### 1. `GeneralTab.tsx` — Fix bug de propinas en `kpis` (línea 134-155)
+`src/integrations/supabase/client.ts` lee:
+```ts
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+```
 
-El comentario ya dice que `total_neto` excluye propinas, pero el código resta `monto_propina`. Eso subestima el ingreso gravable.
+Vite **inlinea** estas variables en tiempo de build. Si no están presentes durante `vite build` en el entorno de publicación, quedan como `undefined` literal en el bundle JS y la app explota antes de montar React (pantalla blanca).
 
-- Cambiar línea 136:  
-  `const ingresoGravable = ventas.reduce((s, v) => s + v.total_neto, 0);`
-- El `Ingreso Bruto Total` para exportación contable se computa cuando se necesite como `ingresoGravable + totalPropinas`. Como no existe un KPI explícito de "Ingreso Bruto" en la UI actual, se añade un KPI adicional opcional en la grid: `KPICard label="Ingreso Bruto Total" value={fmt(ingresoGravable + totalPropinas)}` para reflejar la regla del usuario. (Se ajusta el grid a `lg:grid-cols-5` o se mantiene 4 con prioridad — propuesta: mantener 4 columnas y reemplazar nada; añadir el bruto como 5ta tarjeta en `lg:grid-cols-5`.)
-- La fórmula de `utilidad` se mantiene basada en `ingresoGravable` corregido (la lógica ya es consistente: utilidad = gravable − IVA − comisiones − COGS).
+En el preview funcionan porque ahí el `.env` autogenerado por Lovable Cloud sí está cargado. En el deploy publicado, por algún motivo el archivo `.env` no fue inyectado en el build pipeline (probable causa: el deploy anterior quedó congelado con un bundle generado en condiciones rotas).
 
-### 2. `VentasTab.tsx` — Fix horarios ocultos en mapa de calor retail
+El archivo `.env` y `client.ts` son **read-only / autogenerados** — no se pueden editar.
 
-- Línea 12: cambiar `HORAS_RETAIL` a rango `06:00–23:00`:  
-  `const HORAS_RETAIL = Array.from({ length: 18 }, (_, i) => i + 6);` (18 horas: 6 a 23 inclusive)
-- Línea 131: eliminar el filtro `if (hora < 8 || hora > 21) return;` para no descartar transacciones fuera del horario asumido.
-- Esto garantiza que ninguna venta nocturna/temprana se pierda en la agregación ni en el render.
+## Plan: Hardcodear fallback en `client.ts` mediante un wrapper
 
-### 3. `CajaTab.tsx` — Aclaración UI en Resumen Consolidado
+Como `client.ts` es autogenerado y no debemos tocarlo, y el `.env` también, necesitamos garantizar que las constantes existan en el bundle de producción incluso si `import.meta.env` falla.
 
-- Línea 94: cambiar label `"Ventas Efectivo"` → `"Ingresos por Ventas (Solo Efectivo)"`.
-- Línea 93: envolver `SummaryCard` de `Fondo Apertura Total` en un `Tooltip` que explique:  
-  *"Capital inicial entregado al inicio del turno para dar cambio. No forma parte de las ventas del día."*
-- Para soportar el tooltip, extender `SummaryCard` con prop opcional `tooltip?: string` que renderice el contenido envuelto en `TooltipProvider/Tooltip/TooltipTrigger/TooltipContent` (shadcn) cuando esté presente. Sin tooltip, comportamiento idéntico al actual.
+### Opción A (recomendada): Forzar nuevo build limpio
+Primero, lo más simple — el `.env` ya existe en el repo (Lovable lo genera). Un republish forzado debería resolver. Pero como ya intentaste republicar y no funcionó, descartamos esto.
 
-### Archivos modificados
-- `src/components/reportes/GeneralTab.tsx` (kpis + 1 KPI extra)
-- `src/components/reportes/VentasTab.tsx` (constante + filtro)
-- `src/components/reportes/CajaTab.tsx` (label + tooltip + extender `SummaryCard`)
+### Opción B: Crear `.env.production` versionado
+
+Crear `.env.production` en la raíz con los valores públicos (URL y anon key son **públicas** por diseño en Supabase, no son secretos):
+
+```
+VITE_SUPABASE_URL=https://kswzpteyqiughimtmxal.supabase.co
+VITE_SUPABASE_PUBLISHABLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imtzd3pwdGV5cWl1Z2hpbXRteGFsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYwMzUyOTAsImV4cCI6MjA5MTYxMTI5MH0.Sc6hqMScaKZTi4cBrGXDx_fPZoa6V4bYefSoxkkyZtI
+VITE_SUPABASE_PROJECT_ID=kswzpteyqiughimtmxal
+```
+
+Vite carga `.env.production` automáticamente en `vite build` (modo production). Esto **garantiza** que las variables estén disponibles aunque el `.env` autogenerado no se inyecte en el pipeline de publish.
+
+**Seguridad:** estos valores ya se exponen al navegador en cualquier app Supabase frontend; la `anon key` está protegida por RLS. No es un leak.
+
+### Pasos
+1. Crear `.env.production` con los 3 valores públicos arriba.
+2. Republicar (Publish → Update). Vite lo detectará y los inlineará en el bundle.
+3. Verificar `curl https://coco-kuchil-pos.lovable.app` → ahora debe traer HTML completo y el bundle no explotará al montar.
+
+### Archivos
+- `.env.production` (nuevo, versionado)
 
 ### Verificación
-- Recargar pestaña Reportes → Ventas: el heatmap muestra celdas a las 6, 7, 22, 23 si hay ventas.
-- Pestaña Exportación Contable: `Ingreso Gravable` ahora coincide con la suma directa de `total_neto` (validable contra `VentasTab` y reportes de caja).
-- Pestaña Caja: hover sobre "Fondo Apertura Total" muestra el tooltip; el label de efectivo es más descriptivo.
-
+- En consola del sitio publicado: ya no aparece `supabaseUrl is required`.
+- La app carga la pantalla de login.
+- Login funcional con cualquier cuenta de prueba.
