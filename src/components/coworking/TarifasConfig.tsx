@@ -278,12 +278,15 @@ export function TarifasConfig({ areas }: { areas: Area[] }) {
       </CardContent>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
-          <DialogHeader>
+        <DialogContent className="sm:max-w-2xl lg:max-w-3xl max-h-[90vh] flex flex-col p-0 gap-0">
+          <DialogHeader className="px-6 pt-6 pb-4 border-b border-border/60 shrink-0">
             <DialogTitle>{editingId ? 'Editar Tarifa' : 'Nueva Tarifa'}</DialogTitle>
           </DialogHeader>
 
-          <div className="space-y-5">
+          <div className="flex-1 overflow-y-auto px-6 py-5">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-5">
+              {/* === Columna Izquierda: Configuración base === */}
+              <div className="space-y-5">
             {/* Nombre */}
             <div>
               <Label>Nombre de la Tarifa</Label>
