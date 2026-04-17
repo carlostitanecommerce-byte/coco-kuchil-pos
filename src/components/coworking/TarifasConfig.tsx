@@ -110,6 +110,8 @@ export function TarifasConfig({ areas }: { areas: Area[] }) {
     setTipoCobro(tarifa.tipo_cobro);
     setPrecioBase(String(tarifa.precio_base));
     setAreasSeleccionadas(tarifa.areas_aplicables ?? []);
+    setMetodoFraccion(tarifa.metodo_fraccion ?? '15_min');
+    setMinutosTolerancia(String(tarifa.minutos_tolerancia ?? 5));
 
     const [amenitiesRes, upsellsRes] = await Promise.all([
       supabase.from('tarifa_amenities_incluidos').select('id, producto_id, cantidad_incluida').eq('tarifa_id', tarifa.id),
@@ -202,6 +204,8 @@ export function TarifasConfig({ areas }: { areas: Area[] }) {
     setTipoCobro(tarifa.tipo_cobro);
     setPrecioBase(String(tarifa.precio_base));
     setAreasSeleccionadas(tarifa.areas_aplicables ?? []);
+    setMetodoFraccion(tarifa.metodo_fraccion ?? '15_min');
+    setMinutosTolerancia(String(tarifa.minutos_tolerancia ?? 5));
 
     const [amenitiesRes, upsellsRes] = await Promise.all([
       supabase.from('tarifa_amenities_incluidos').select('id, producto_id, cantidad_incluida').eq('tarifa_id', tarifa.id),
