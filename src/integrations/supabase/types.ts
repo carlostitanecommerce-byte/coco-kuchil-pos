@@ -316,6 +316,7 @@ export type Database = {
           monto_acumulado: number
           pax_count: number
           tarifa_id: string | null
+          tarifa_snapshot: Json | null
           updated_at: string
           upsell_precio: number | null
           upsell_producto_id: string | null
@@ -333,6 +334,7 @@ export type Database = {
           monto_acumulado?: number
           pax_count?: number
           tarifa_id?: string | null
+          tarifa_snapshot?: Json | null
           updated_at?: string
           upsell_precio?: number | null
           upsell_producto_id?: string | null
@@ -350,6 +352,7 @@ export type Database = {
           monto_acumulado?: number
           pax_count?: number
           tarifa_id?: string | null
+          tarifa_snapshot?: Json | null
           updated_at?: string
           upsell_precio?: number | null
           upsell_producto_id?: string | null
@@ -930,6 +933,8 @@ export type Database = {
           areas_aplicables: string[]
           created_at: string
           id: string
+          metodo_fraccion: string | null
+          minutos_tolerancia: number | null
           nombre: string
           precio_base: number
           tipo_cobro: Database["public"]["Enums"]["tipo_cobro"]
@@ -940,6 +945,8 @@ export type Database = {
           areas_aplicables?: string[]
           created_at?: string
           id?: string
+          metodo_fraccion?: string | null
+          minutos_tolerancia?: number | null
           nombre: string
           precio_base?: number
           tipo_cobro?: Database["public"]["Enums"]["tipo_cobro"]
@@ -950,6 +957,8 @@ export type Database = {
           areas_aplicables?: string[]
           created_at?: string
           id?: string
+          metodo_fraccion?: string | null
+          minutos_tolerancia?: number | null
           nombre?: string
           precio_base?: number
           tipo_cobro?: Database["public"]["Enums"]["tipo_cobro"]
