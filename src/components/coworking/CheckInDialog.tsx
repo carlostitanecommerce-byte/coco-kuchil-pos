@@ -17,6 +17,10 @@ interface Tarifa {
   precio_base: number;
   tipo_cobro: string;
   areas_aplicables: string[];
+  metodo_fraccion: string;
+  minutos_tolerancia: number;
+  activo?: boolean;
+  [key: string]: any;
 }
 
 interface UpsellOption {
@@ -71,7 +75,7 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, onSuccess 
     const fetchTarifas = async () => {
       const { data } = await supabase
         .from('tarifas_coworking')
-        .select('id, nombre, precio_base, tipo_cobro, areas_aplicables')
+        .select('*')
         .eq('activo', true);
       setTarifas((data as Tarifa[]) ?? []);
     };
@@ -158,6 +162,19 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, onSuccess 
 
     const firstUpsell = selectedUpsells.length > 0 ? selectedUpsells[0] : null;
 
+    // Build immutable tarifa snapshot at check-in time
+    const selectedTarifa = selectedTarifaId
+      ? tarifas.find(t => t.id === selectedTarifaId) ?? null
+      : null;
+    const tarifaSnapshot = selectedTarifa
+      ? {
+          ...selectedTarifa,
+          amenities: amenityOptions,
+          upsells_disponibles: upsellOptions,
+          snapshot_at: new Date().toISOString(),
+        }
+      : null;
+
     const { data: sessionData, error } = await supabase.from('coworking_sessions').insert({
       cliente_nombre: clienteNombre.trim(),
       area_id: selectedAreaId,
@@ -168,6 +185,7 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, onSuccess 
       estado: 'activo',
       monto_acumulado: 0,
       tarifa_id: selectedTarifaId || null,
+      tarifa_snapshot: tarifaSnapshot,
       upsell_producto_id: firstUpsell?.producto_id ?? null,
       upsell_precio: firstUpsell?.precio_especial ?? null,
     }).select('id').single();
@@ -198,7 +216,22 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, onSuccess 
       await supabase.from('audit_logs').insert({
         user_id: user.id, accion: 'checkin_coworking',
         descripcion: `Check-in: ${clienteNombre.trim()} (${pax} pax)`,
-        metadata: { area_id: selectedAreaId, pax_count: pax, horas: horasNum, tarifa_id: selectedTarifaId || null, upsell_ids: selectedUpsells.map(u => u.producto_id) },
+        metadata: {
+          area_id: selectedAreaId,
+          pax_count: pax,
+          horas: horasNum,
+          tarifa_id: selectedTarifaId || null,
+          upsell_ids: selectedUpsells.map(u => u.producto_id),
+          tarifa_snapshot_resumen: selectedTarifa
+            ? {
+                nombre: selectedTarifa.nombre,
+                precio_base: selectedTarifa.precio_base,
+                tipo_cobro: selectedTarifa.tipo_cobro,
+                metodo_fraccion: selectedTarifa.metodo_fraccion,
+                minutos_tolerancia: selectedTarifa.minutos_tolerancia,
+              }
+            : null,
+        },
       });
       toast({ title: 'Entrada registrada exitosamente' });
       setClienteNombre(''); setSelectedAreaId(''); setPaxCount('1'); setHoras('1');
