@@ -1,50 +1,37 @@
 
 
-## Diagnóstico definitivo
+## Plan: Corregir inconsistencias en Reportes (3 fixes quirúrgicos)
 
-Comparé los dos entornos:
+### 1. `GeneralTab.tsx` — Fix bug de propinas en `kpis` (línea 134-155)
 
-**Build local (funciona):** `npx vite build` se ejecuta sin errores y produce un `dist/index.html` de 1.59 kB con `<head>`, CSS (`index-F05a9fdY.css`, 69 kB) y JS (`index-AW-zbnTY.js`, 1.88 MB) correctamente referenciados.
+El comentario ya dice que `total_neto` excluye propinas, pero el código resta `monto_propina`. Eso subestima el ingreso gravable.
 
-**Sitio publicado (vacío):** `https://coco-kuchil-pos.lovable.app` devuelve un HTML de ~99 bytes:
-```html
-<!DOCTYPE html><html lang="en"><body><div id="root"></div></body></html>
-```
-Sin `<head>`, sin `<script>`, sin CSS. Por eso queda en blanco — el navegador no tiene nada que cargar.
+- Cambiar línea 136:  
+  `const ingresoGravable = ventas.reduce((s, v) => s + v.total_neto, 0);`
+- El `Ingreso Bruto Total` para exportación contable se computa cuando se necesite como `ingresoGravable + totalPropinas`. Como no existe un KPI explícito de "Ingreso Bruto" en la UI actual, se añade un KPI adicional opcional en la grid: `KPICard label="Ingreso Bruto Total" value={fmt(ingresoGravable + totalPropinas)}` para reflejar la regla del usuario. (Se ajusta el grid a `lg:grid-cols-5` o se mantiene 4 con prioridad — propuesta: mantener 4 columnas y reemplazar nada; añadir el bruto como 5ta tarjeta en `lg:grid-cols-5`.)
+- La fórmula de `utilidad` se mantiene basada en `ingresoGravable` corregido (la lógica ya es consistente: utilidad = gravable − IVA − comisiones − COGS).
 
-**Causa:** El despliegue publicado está desincronizado con el código actual. Cuando ocurrió el error de CSS (`@import` mal posicionado), el build de publicación de ese momento falló y dejó un artefacto vacío en producción. El fix posterior al CSS arregló el preview (que rebuilds en vivo), pero **nunca se volvió a presionar "Update" en el diálogo de Publish**, así que el sitio público sigue sirviendo el artefacto roto.
+### 2. `VentasTab.tsx` — Fix horarios ocultos en mapa de calor retail
 
-Confirmé también:
-- `publish_visibility = public` (no es problema de permisos)
-- `is_published = true`
-- El `index.html` fuente del repo está bien
-- `vite build` termina exitoso en 9.85 s
+- Línea 12: cambiar `HORAS_RETAIL` a rango `06:00–23:00`:  
+  `const HORAS_RETAIL = Array.from({ length: 18 }, (_, i) => i + 6);` (18 horas: 6 a 23 inclusive)
+- Línea 131: eliminar el filtro `if (hora < 8 || hora > 21) return;` para no descartar transacciones fuera del horario asumido.
+- Esto garantiza que ninguna venta nocturna/temprana se pierda en la agregación ni en el render.
 
-## Plan
+### 3. `CajaTab.tsx` — Aclaración UI en Resumen Consolidado
 
-Esto NO se resuelve con cambios de código — el código ya está correcto. Se resuelve republicando.
+- Línea 94: cambiar label `"Ventas Efectivo"` → `"Ingresos por Ventas (Solo Efectivo)"`.
+- Línea 93: envolver `SummaryCard` de `Fondo Apertura Total` en un `Tooltip` que explique:  
+  *"Capital inicial entregado al inicio del turno para dar cambio. No forma parte de las ventas del día."*
+- Para soportar el tooltip, extender `SummaryCard` con prop opcional `tooltip?: string` que renderice el contenido envuelto en `TooltipProvider/Tooltip/TooltipTrigger/TooltipContent` (shadcn) cuando esté presente. Sin tooltip, comportamiento idéntico al actual.
 
-### Paso único: Republicar la app
-
-1. En el editor de Lovable, abrir el botón **Publish** (esquina superior derecha)
-2. En el diálogo, presionar **Update** para forzar un nuevo build de producción y desplegarlo a `coco-kuchil-pos.lovable.app`
-3. Esperar ~30-60 segundos a que termine
-4. Recargar el sitio publicado (`Ctrl+Shift+R` para evitar caché del navegador)
+### Archivos modificados
+- `src/components/reportes/GeneralTab.tsx` (kpis + 1 KPI extra)
+- `src/components/reportes/VentasTab.tsx` (constante + filtro)
+- `src/components/reportes/CajaTab.tsx` (label + tooltip + extender `SummaryCard`)
 
 ### Verificación
-- `curl https://coco-kuchil-pos.lovable.app` debe devolver un HTML completo con `<head>`, `<link rel="stylesheet">` y `<script type="module" src="/assets/index-*.js">`
-- El sitio carga la pantalla de login
-
-### Por qué no hay nada que arreglar en código
-- `vite build` exitoso → la base de código compila
-- El preview funciona → el código en runtime es válido
-- El HTML servido en producción está literalmente vacío → es un artefacto de build estático que quedó congelado en el deploy anterior fallido
-
-### Si después de republicar sigue en blanco
-Solo entonces sería un bug de código en producción y haría falta inspeccionar:
-- Diferencias entre `dev` y `production` (ej. `import.meta.env`)
-- Variables de entorno faltantes en el bundle
-- Errores de runtime visibles en la consola del navegador del sitio publicado
-
-Pero con la evidencia actual, basta con presionar **Update** en Publish.
+- Recargar pestaña Reportes → Ventas: el heatmap muestra celdas a las 6, 7, 22, 23 si hay ventas.
+- Pestaña Exportación Contable: `Ingreso Gravable` ahora coincide con la suma directa de `total_neto` (validable contra `VentasTab` y reportes de caja).
+- Pestaña Caja: hover sobre "Fondo Apertura Total" muestra el tooltip; el label de efectivo es más descriptivo.
 
