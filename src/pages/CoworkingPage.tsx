@@ -19,6 +19,7 @@ const CoworkingPage = () => {
   const { roles } = useAuth();
   const data = useCoworkingData();
   const [checkoutSummary, setCheckoutSummary] = useState<CheckoutSummary | null>(null);
+  const [sessionToCancel, setSessionToCancel] = useState<CoworkingSession | null>(null);
   const [sessionToManageAccount, setSessionToManageAccount] = useState<CoworkingSession | null>(null);
   const isAdmin = roles.includes('administrador');
 
