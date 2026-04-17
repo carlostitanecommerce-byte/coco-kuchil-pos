@@ -1,45 +1,50 @@
 
-El preview en blanco coincide con el log: `[vite] server connection lost. Polling for restart...`. El dev server de Vite se cayó (probablemente al detectar el nuevo `.env.production` y reiniciar, o por un crash). Necesito inspeccionar el log del dev-server para confirmar la causa raíz antes de actuar.
 
-## Diagnóstico probable
+## Diagnóstico raíz (confirmado)
 
-1. **Causa más probable:** Vite reinició al crearse `.env.production` y falló al levantar (puerto ocupado, error de sintaxis en algún archivo editado recientemente, o crash de HMR). El cliente quedó en "Polling for restart" → pantalla blanca.
-2. **Causa secundaria posible:** Un error de TypeScript/runtime en los archivos editados en los últimos pasos (`CheckoutDialog.tsx`, `CoworkingPage.tsx`, `useCoworkingData.ts`, `types.ts`, `ConfiguracionTab.tsx`, `TarifasConfig.tsx`, `CheckInDialog.tsx`) que rompe el bundle al navegar a `/coworking`.
-3. **Causa terciaria:** `.env.production` mal formateado podría afectar el parseo de env de Vite.
+El bundle de producción **sí se reconstruyó** (`index-Dn14PXzP.js` ≠ el hash anterior), pero sigue fallando con `supabaseUrl is required`. Esto demuestra que **`.env.production` NO se está incluyendo en el build de Lovable**.
 
-## Plan de resolución
+### Por qué `.env.production` no funciona
 
-**Paso 1 — Inspeccionar logs del dev-server** (necesita modo default):
+`.gitignore` línea 27: `.env.*` ignora **todas** las variantes de `.env` salvo `.env.example`. Como `.gitignore` es **read-only en Lovable** (memoria del proyecto lo confirma: `mem://constraints/archivo-gitignore-readonly`), el archivo `.env.production` nunca llega al pipeline de build de Lovable. Por eso `import.meta.env.VITE_SUPABASE_URL` resulta `undefined` en producción y `createClient(undefined, undefined)` lanza el error.
+
+Este enfoque es un callejón sin salida en Lovable.
+
+## Solución profesional (definitiva)
+
+Hardcodear los valores **públicos** de Supabase como **fallback** en `src/integrations/supabase/client.ts`. Es la práctica oficial recomendada por Lovable y por el propio Supabase para apps cliente:
+
+- `VITE_SUPABASE_URL` y la **anon key** son **públicas por diseño** (cualquier request del navegador las expone). La seguridad real vive en las **políticas RLS** de Postgres, que ya están implementadas en este proyecto.
+- El archivo es regenerable por Lovable, pero el cambio solo añade un `??` fallback que no rompe la regeneración.
+
+### Cambio único
+
+**`src/integrations/supabase/client.ts`** — añadir fallback hardcodeado:
+
+```typescript
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL 
+  ?? "https://kswzpteyqiughimtmxal.supabase.co";
+const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY 
+  ?? "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imtzd3pwdGV5cWl1Z2hpbXRteGFsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYwMzUyOTAsImV4cCI6MjA5MTYxMTI5MH0.Sc6hqMScaKZTi4cBrGXDx_fPZoa6V4bYefSoxkkyZtI";
 ```
-tail -n 200 /tmp/dev-server-logs/dev-server.log
-grep -nE 'error|failed|exception|SyntaxError' /tmp/dev-server-logs/dev-server.log | tail -n 30
-```
 
-**Paso 2 — Verificar `.env.production`** que esté bien formado y no rompa el parser de Vite.
+Resultado: en preview seguirá usando `.env`, y en producción caerá al fallback hardcodeado, eliminando el error para siempre.
 
-**Paso 3 — Reiniciar el dev-server** si está caído:
-```
-ls /tmp/dev-server-logs/
-# Si Vite no responde, el sandbox lo reinicia solo al tocar archivos; si no, forzar restart tocando vite.config.ts
-```
+## Pasos de ejecución
 
-**Paso 4 — Si hay error de compilación en los archivos recién editados**, leerlo del log y corregirlo (típicamente un import faltante o un campo del snapshot mal tipado tras quitar `useFraccion15`).
+1. **Editar** `src/integrations/supabase/client.ts` con los fallbacks `??`.
+2. **Eliminar** `.env.production` (ya no aporta nada y solo confunde).
+3. **Republicar** (botón Publish → Update). El nuevo bundle traerá los valores embebidos.
+4. **Verificar** en `coco-kuchil-pos.lovable.app` que ya no aparece la pantalla blanca y carga la pantalla de login.
 
-**Paso 5 — Verificar** que el preview cargue (`/coworking` renderiza sin pantalla blanca, sin errores en consola del navegador).
+## Por qué no es inseguro
 
-## Hipótesis principal
+- La anon key + URL ya viajan en cada request HTTP del navegador a Supabase — no son secretos.
+- El `service_role_key` (ese sí secreto) **no se toca**: vive solo en edge functions y secrets de Supabase.
+- RLS protege los datos: sin sesión válida, la anon key no puede leer/escribir nada protegido.
 
-Apuesto a que es **caso 2**: al eliminar `useFraccion15` de `CheckoutSummary` en el último paso de limpieza, quedó alguna referencia residual (probablemente en `CheckoutDialog.tsx` o `CoworkingPage.tsx`) que rompe la compilación TS y deja el bundle inválido. Eso explicaría pantalla blanca exactamente en `/coworking`.
+## Archivos afectados
 
-## Archivos a revisar (lectura primero, edición si confirmo el bug)
+- `src/integrations/supabase/client.ts` (modificar — añadir fallbacks)
+- `.env.production` (eliminar — inútil por el `.gitignore`)
 
-- `/tmp/dev-server-logs/dev-server.log` (lectura)
-- `.env.production` (lectura)
-- `src/components/coworking/CheckoutDialog.tsx` (búsqueda de `useFraccion15`)
-- `src/pages/CoworkingPage.tsx` (búsqueda de `useFraccion15` / `cobro_fraccion_15min`)
-- `src/components/coworking/CoworkingSessionSelector.tsx` (búsqueda de `cobro_fraccion_15min`)
-- `src/components/pos/CartPanel.tsx` y `useVentaConfig.ts` (búsqueda de `cobro_fraccion_15min`)
-
-## Acción correctiva esperada
-
-Eliminar referencias residuales a `useFraccion15` / `cobro_fraccion_15min` en componentes que aún las consuman, o corregir el error específico que reporte el log. Sin más cambios funcionales.
