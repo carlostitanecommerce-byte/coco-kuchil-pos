@@ -200,9 +200,9 @@ export function ManageSessionAccountDialog({ session, onClose, onSuccess }: Prop
                     >
                       <div className="flex items-center gap-2 min-w-0">
                         {isAmenity ? (
-                          <Gift className="h-4 w-4 text-emerald-600 shrink-0" />
+                          <Gift className="h-4 w-4 text-primary shrink-0" />
                         ) : (
-                          <Sparkles className="h-4 w-4 text-amber-600 shrink-0" />
+                          <Sparkles className="h-4 w-4 text-accent-foreground shrink-0" />
                         )}
                         <div className="min-w-0">
                           <span className="font-medium truncate">{item.nombre}</span>
@@ -214,7 +214,7 @@ export function ManageSessionAccountDialog({ session, onClose, onSuccess }: Prop
                       <div className="flex items-center gap-3 shrink-0">
                         <span
                           className={
-                            isAmenity ? 'text-emerald-700 font-medium' : 'text-foreground font-medium'
+                            isAmenity ? 'text-primary font-medium' : 'text-foreground font-medium'
                           }
                         >
                           {isAmenity ? 'Incluido' : `$${item.precio_especial.toFixed(2)}`}
@@ -276,7 +276,7 @@ export function ManageSessionAccountDialog({ session, onClose, onSuccess }: Prop
                         <div className="flex items-center gap-2 flex-wrap">
                           <span className="font-medium">{p.nombre}</span>
                           {isSpecial ? (
-                            <Badge variant="default" className="text-[10px] px-1.5 py-0 bg-amber-600 hover:bg-amber-600/90">
+                            <Badge variant="default" className="text-[10px] px-1.5 py-0">
                               Precio Especial
                             </Badge>
                           ) : (
