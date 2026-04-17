@@ -1,20 +1,37 @@
 
 
-## Plan: Crear trigger, backfill profiles y corregir secuencias de folios
+## Diagnóstico: Pantalla blanca causada por CSS inválido
 
-### Migración SQL única
+El log del dev server muestra el error real:
 
-1. **Crear trigger `on_auth_user_created`** en `auth.users` AFTER INSERT que llame a `handle_new_user()` para que futuros usuarios generen profile automáticamente.
+```
+[vite:css] @import must precede all other statements (besides @charset or empty @layer)
+```
 
-2. **Backfill profiles** para los 8 usuarios existentes en `auth.users` que no tienen registro en `profiles`, usando `id`, `email` y `raw_user_meta_data->>'nombre'`.
+En `src/index.css` el `@import` de Google Fonts (línea 5) está **después** de las directivas `@tailwind` (líneas 1-3). Según la spec CSS, `@import` debe ir antes de cualquier otra regla. PostCSS rechaza el archivo, Tailwind no compila, y la app monta sin estilos / falla de forma que deja la pantalla en blanco.
 
-3. **Ejecutar `encrypt_and_save_password`** para cada usuario con su username y contraseña correspondiente:
-   - admin/Coco2024!, supervisor/Coco2024!, caja/Coco2024!, barista/Coco2024!, recepcion/Coco2024!, carlos123/Coco2024!, daria/Dari26, grissel/Gris26
+Esto **no tiene nada que ver con la migración anterior** de profiles/sequences (esa se aplicó correctamente). Es un bug de CSS preexistente que se manifestó al recargar.
 
-4. **Corregir secuencias de folios** para evitar conflictos con datos migrados:
-   - `ALTER SEQUENCE ventas_folio_seq RESTART WITH 632;`
-   - `ALTER SEQUENCE cajas_folio_seq RESTART WITH 56;`
+## Plan
+
+### Paso único: Reordenar `src/index.css`
+
+Mover el `@import` de Google Fonts a la primera línea del archivo, antes de las directivas `@tailwind`:
+
+```css
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:...&family=Playfair+Display:...&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base { ... }
+```
+
+### Verificación
+- Vite recompila sin errores en el log
+- La app carga (login o dashboard según sesión)
 
 ### Archivos
-- Solo una migración SQL (sin cambios de código)
+- `src/index.css` (solo reordenar las primeras 5 líneas)
 
