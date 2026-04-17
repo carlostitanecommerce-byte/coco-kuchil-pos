@@ -6,7 +6,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { UserPlus, X, Plus } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+import { UserPlus, X, Plus, Search, Sparkles, Gift } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import type { Area } from './types';
 import { dateToCDMX } from '@/lib/utils';
@@ -35,6 +36,20 @@ interface AmenityOption {
   cantidad_incluida: number;
 }
 
+interface Producto {
+  id: string;
+  nombre: string;
+  categoria: string;
+  precio_venta: number;
+}
+
+interface ExtraItem {
+  producto_id: string;
+  nombre: string;
+  precio: number;
+  isSpecial: boolean;
+}
+
 interface Props {
   areas: Area[];
   getOccupancy: (areaId: string) => number;
@@ -56,9 +71,12 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, onSuccess 
   const [tarifas, setTarifas] = useState<Tarifa[]>([]);
   const [selectedTarifaId, setSelectedTarifaId] = useState('');
   const [upsellOptions, setUpsellOptions] = useState<UpsellOption[]>([]);
-  const [selectedUpsells, setSelectedUpsells] = useState<UpsellOption[]>([]);
-  const [pendingUpsellId, setPendingUpsellId] = useState('');
   const [amenityOptions, setAmenityOptions] = useState<AmenityOption[]>([]);
+
+  // Unified product search for extra consumption at check-in
+  const [productos, setProductos] = useState<Producto[]>([]);
+  const [extraItems, setExtraItems] = useState<ExtraItem[]>([]);
+  const [search, setSearch] = useState('');
 
   const selectedArea = areas.find(a => a.id === selectedAreaId);
   const isPublicArea = selectedArea ? !selectedArea.es_privado : false;
@@ -70,16 +88,18 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, onSuccess 
     }
   }, [isPublicArea]);
 
-  // Load tarifas on mount
+  // Load tarifas + productos on open
   useEffect(() => {
-    const fetchTarifas = async () => {
-      const { data } = await supabase
-        .from('tarifas_coworking')
-        .select('*')
-        .eq('activo', true);
-      setTarifas((data as Tarifa[]) ?? []);
+    if (!open) return;
+    const fetchOpenData = async () => {
+      const [tarifasRes, prodRes] = await Promise.all([
+        supabase.from('tarifas_coworking').select('*').eq('activo', true),
+        supabase.from('productos').select('id, nombre, categoria, precio_venta').eq('activo', true).order('nombre'),
+      ]);
+      setTarifas((tarifasRes.data as Tarifa[]) ?? []);
+      setProductos((prodRes.data as Producto[]) ?? []);
     };
-    if (open) fetchTarifas();
+    fetchOpenData();
   }, [open]);
 
   // Filter tarifas by selected area
@@ -98,8 +118,7 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, onSuccess 
 
   // Load upsell options and amenities when tarifa changes
   useEffect(() => {
-    setPendingUpsellId('');
-    setSelectedUpsells([]);
+    setExtraItems([]);
     setUpsellOptions([]);
     setAmenityOptions([]);
     if (!selectedTarifaId) return;
@@ -160,7 +179,7 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, onSuccess 
     const fechaInicio = new Date();
     const fechaFinEstimada = new Date(fechaInicio.getTime() + horasNum * 60 * 60 * 1000);
 
-    const firstUpsell = selectedUpsells.length > 0 ? selectedUpsells[0] : null;
+    const firstUpsell = extraItems.find(i => i.isSpecial) ?? null;
 
     // Build immutable tarifa snapshot at check-in time
     const selectedTarifa = selectedTarifaId
@@ -187,19 +206,19 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, onSuccess 
       tarifa_id: selectedTarifaId || null,
       tarifa_snapshot: tarifaSnapshot,
       upsell_producto_id: firstUpsell?.producto_id ?? null,
-      upsell_precio: firstUpsell?.precio_especial ?? null,
+      upsell_precio: firstUpsell?.precio ?? null,
     } as any).select('id').single();
 
     if (error) {
       toast({ variant: 'destructive', title: 'Error', description: error.message });
     } else {
       if (sessionData) {
-        // Insert upsells with real-time prices
-        for (const u of selectedUpsells) {
+        // Insert extra items (upsells de tarifa o consumos a precio regular)
+        for (const it of extraItems) {
           await supabase.from('coworking_session_upsells').insert({
             session_id: sessionData.id,
-            producto_id: u.producto_id,
-            precio_especial: u.precio_especial,
+            producto_id: it.producto_id,
+            precio_especial: it.precio,
             cantidad: 1,
           });
         }
@@ -221,7 +240,7 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, onSuccess 
           pax_count: pax,
           horas: horasNum,
           tarifa_id: selectedTarifaId || null,
-          upsell_ids: selectedUpsells.map(u => u.producto_id),
+          extra_items: extraItems.map(i => ({ producto_id: i.producto_id, precio: i.precio, isSpecial: i.isSpecial })),
           tarifa_snapshot_resumen: selectedTarifa
             ? {
                 nombre: selectedTarifa.nombre,
@@ -235,7 +254,7 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, onSuccess 
       });
       toast({ title: 'Entrada registrada exitosamente' });
       setClienteNombre(''); setSelectedAreaId(''); setPaxCount('1'); setHoras('1');
-      setSelectedTarifaId(''); setSelectedUpsells([]); setPendingUpsellId('');
+      setSelectedTarifaId(''); setExtraItems([]); setSearch('');
       setAmenityOptions([]);
       setOpen(false);
       await onSuccess?.();
@@ -298,46 +317,105 @@ export function CheckInDialog({ areas, getOccupancy, getAvailablePax, onSuccess 
             </div>
           )}
 
-          {/* Upsell selector - multiple */}
-          {selectedTarifaId && upsellOptions.length > 0 && (
+          {/* Búsqueda unificada de consumos extra */}
+          {selectedAreaId && (
             <div className="space-y-2">
-              <Label>Mejorar Experiencia (Upsell) <span className="text-muted-foreground text-xs">— opcional</span></Label>
-              {selectedUpsells.length > 0 && (
+              <Label>
+                Añadir Consumo Extra <span className="text-muted-foreground text-xs">— opcional</span>
+              </Label>
+
+              {extraItems.length > 0 && (
                 <div className="space-y-1">
-                  {selectedUpsells.map(u => (
-                    <div key={u.producto_id} className="flex items-center justify-between rounded-md border px-3 py-1.5 text-sm">
-                      <span>{u.nombre} — ${u.precio_especial.toFixed(2)}</span>
-                      <Button type="button" variant="ghost" size="icon" className="h-6 w-6" onClick={() => setSelectedUpsells(prev => prev.filter(x => x.producto_id !== u.producto_id))}>
+                  {extraItems.map((it, idx) => (
+                    <div key={`${it.producto_id}-${idx}`} className="flex items-center justify-between rounded-md border px-3 py-1.5 text-sm">
+                      <div className="flex items-center gap-2 min-w-0">
+                        {it.isSpecial ? (
+                          <Sparkles className="h-3.5 w-3.5 text-primary shrink-0" />
+                        ) : (
+                          <Gift className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                        )}
+                        <span className="truncate">{it.nombre}</span>
+                        <span className="text-muted-foreground shrink-0">${it.precio.toFixed(2)}</span>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-6 w-6 shrink-0"
+                        onClick={() => setExtraItems(prev => prev.filter((_, i) => i !== idx))}
+                      >
                         <X className="h-3 w-3" />
                       </Button>
                     </div>
                   ))}
                 </div>
               )}
-              {(() => {
-                const available = upsellOptions.filter(o => !selectedUpsells.some(s => s.producto_id === o.producto_id));
-                if (available.length === 0) return null;
-                return (
-                  <div className="flex gap-2">
-                    <Select value={pendingUpsellId} onValueChange={setPendingUpsellId}>
-                      <SelectTrigger className="flex-1"><SelectValue placeholder="Agregar upsell..." /></SelectTrigger>
-                      <SelectContent>
-                        {available.map(u => (
-                          <SelectItem key={u.producto_id} value={u.producto_id}>
-                            {u.nombre} — ${u.precio_especial.toFixed(2)}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <Button type="button" variant="outline" size="icon" disabled={!pendingUpsellId} onClick={() => {
-                      const opt = upsellOptions.find(o => o.producto_id === pendingUpsellId);
-                      if (opt) { setSelectedUpsells(prev => [...prev, opt]); setPendingUpsellId(''); }
-                    }}>
-                      <Plus className="h-4 w-4" />
-                    </Button>
-                  </div>
-                );
-              })()}
+
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Buscar producto por nombre o categoría..."
+                  value={search}
+                  onChange={e => setSearch(e.target.value)}
+                  className="pl-9"
+                />
+              </div>
+
+              {search.trim() !== '' && (
+                <div className="space-y-1 max-h-48 overflow-y-auto border border-border/60 rounded-md p-1">
+                  {(() => {
+                    const filtered = productos.filter(
+                      p =>
+                        p.nombre.toLowerCase().includes(search.toLowerCase()) ||
+                        p.categoria.toLowerCase().includes(search.toLowerCase()),
+                    );
+                    if (filtered.length === 0) {
+                      return <p className="text-xs text-muted-foreground text-center py-2">Sin resultados</p>;
+                    }
+                    return filtered.map(p => {
+                      const upsell = upsellOptions.find(u => u.producto_id === p.id);
+                      const isSpecial = !!upsell;
+                      const precio = isSpecial ? upsell!.precio_especial : p.precio_venta;
+                      return (
+                        <div
+                          key={p.id}
+                          className="flex items-center justify-between rounded-md border border-transparent hover:border-border hover:bg-muted/40 p-1.5 text-sm transition-colors"
+                        >
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-medium truncate">{p.nombre}</span>
+                              {isSpecial ? (
+                                <Badge variant="default" className="text-[10px] px-1.5 py-0">Precio Especial</Badge>
+                              ) : (
+                                <Badge variant="secondary" className="text-[10px] px-1.5 py-0">Precio Regular</Badge>
+                              )}
+                            </div>
+                            <span className="text-muted-foreground text-xs">{p.categoria}</span>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <span className="font-medium">${precio.toFixed(2)}</span>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              className="h-7"
+                              onClick={() => {
+                                setExtraItems(prev => [
+                                  ...prev,
+                                  { producto_id: p.id, nombre: p.nombre, precio, isSpecial },
+                                ]);
+                                setSearch('');
+                              }}
+                            >
+                              <Plus className="h-3 w-3" />
+                            </Button>
+                          </div>
+                        </div>
+                      );
+                    });
+                  })()}
+                </div>
+              )}
             </div>
           )}
 
