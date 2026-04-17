@@ -1,25 +1,34 @@
 
-Aplicar únicamente la migración SQL solicitada, sin cambios de código.
+Mismo error que ya diagnosticamos antes: el bundle de producción se construyó sin las variables `VITE_SUPABASE_URL` y `VITE_SUPABASE_PUBLISHABLE_KEY`, por lo que `createClient(undefined, undefined)` falla con `supabaseUrl is required`.
 
-## Migración
+## Causa
 
-```sql
-ALTER TABLE tarifas_coworking 
-  ADD COLUMN metodo_fraccion text DEFAULT '15_min' 
-    CHECK (metodo_fraccion IN ('hora_cerrada', '15_min', '30_min', 'minuto_exacto')),
-  ADD COLUMN minutos_tolerancia integer DEFAULT 5;
+`src/integrations/supabase/client.ts` lee `import.meta.env.VITE_SUPABASE_URL` y `VITE_SUPABASE_PUBLISHABLE_KEY`. Vite solo inlinea esas variables en el bundle si existen **al momento del build**. El sitio publicado (`coco-kuchil-pos.lovable.app`) se construyó sin un `.env.production`, por eso ambas quedaron `undefined`.
 
-ALTER TABLE coworking_sessions 
-  ADD COLUMN tarifa_snapshot jsonb;
+El `.env` local funciona en preview, pero `.env` está en `.gitignore` y no viaja al build de producción. Se necesita `.env.production` versionado con los valores **públicos** (URL + anon key — no son secretos, ya están expuestos en el cliente de cualquier app Supabase).
+
+## Solución
+
+Crear `.env.production` en la raíz del proyecto con:
+
+```
+VITE_SUPABASE_PROJECT_ID="kswzpteyqiughimtmxal"
+VITE_SUPABASE_URL="https://kswzpteyqiughimtmxal.supabase.co"
+VITE_SUPABASE_PUBLISHABLE_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imtzd3pwdGV5cWl1Z2hpbXRteGFsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYwMzUyOTAsImV4cCI6MjA5MTYxMTI5MH0.Sc6hqMScaKZTi4cBrGXDx_fPZoa6V4bYefSoxkkyZtI"
 ```
 
-## Efecto
+Estos son valores **públicos** (anon key con RLS protegiendo los datos) — es seguro versionarlos.
 
-- `tarifas_coworking` gana 2 columnas con defaults; filas existentes quedan con `metodo_fraccion='15_min'` y `minutos_tolerancia=5`.
-- `coworking_sessions` gana `tarifa_snapshot` nullable; filas existentes quedan en `NULL`.
-- `src/integrations/supabase/types.ts` se regenera automáticamente.
-- Sin cambios en componentes — la app sigue funcionando idéntica (las nuevas columnas no se consumen todavía).
+## Pasos
+
+1. Crear `.env.production` con los 3 valores.
+2. Republicar (botón **Publish → Update**). Vite hará el rebuild e inlineará las variables.
+3. Verificar en consola del sitio publicado que el error desapareció y la pantalla de login carga.
 
 ## Archivos
 
-- Migración SQL (gestionada por la herramienta de migraciones).
+- `.env.production` (nuevo, versionado)
+
+## Nota sobre `.gitignore`
+
+`.gitignore` actualmente ignora `.env*` excepto `.env.example`. Debo verificar si `.env.production` también está ignorado; si lo está, hay que añadir una excepción `!.env.production`. Como `.gitignore` es read-only en Lovable (memoria del proyecto), si está bloqueado tendré que indicarte cómo gestionarlo manualmente — pero normalmente Lovable permite `.env.production` versionado.
